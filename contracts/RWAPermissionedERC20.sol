@@ -110,12 +110,13 @@ contract RWAPermissionedERC20 is ERC20, AccessControl, Pausable {
     }
 */
 
-    function _update(address from, address to, uint256 value) internal override whenNotPaused {
+    function _update(address from, address to, uint256 value) internal override {
         if (from == address(0) || to == address(0)) {
             super._update(from, to, value);
             return;
         }
 
+        _requireNotPaused();
         bool fromIssuer = (from == issuer);
         bool toIssuer = (to == issuer);
 
