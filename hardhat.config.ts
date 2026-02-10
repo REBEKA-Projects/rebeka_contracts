@@ -34,5 +34,11 @@ export default defineConfig({
       url: configVariable("SEPOLIA_RPC_URL"),
       accounts: [configVariable("SEPOLIA_PRIVATE_KEY")],
     },
+    arbitrum: {
+      type: "http",
+      chainType: "l1",
+      url: configVariable("ARBITRUM_RPC_URL"),
+      accounts: [configVariable("ARBITRUM_PRIVATE_KEY")],
+    },
   },
 });
