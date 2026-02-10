@@ -285,6 +285,59 @@ describe("RWAPermissionedERC20", async function () {
     });
   });
 
+  describe("amount 0 y disallow con tokens", function () {
+    it("mint con amount 0 revierte con ZeroAmount", async function () {
+      const token = await deployToken();
+      const tokenAsIssuer = await getTokenAs(token, issuerWallet);
+      await viem.assertions.revertWithCustomError(
+        tokenAsIssuer.write.mint([issuer, 0n]),
+        token,
+        "ZeroAmount",
+      );
+    });
+
+    it("burn con amount 0 revierte con ZeroAmount", async function () {
+      const token = await deployToken();
+      const tokenAsIssuer = await getTokenAs(token, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, MINT_AMOUNT]);
+      await viem.assertions.revertWithCustomError(
+        tokenAsIssuer.write.burn([issuer, 0n]),
+        token,
+        "ZeroAmount",
+      );
+    });
+
+    it("disallow usuario que ya tiene tokens: no puede transferir a issuer", async function () {
+      const token = await deployToken();
+      const tokenAsKyc = await getTokenAs(token, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      const tokenAsIssuer = await getTokenAs(token, issuerWallet);
+      await tokenAsIssuer.write.mint([investor1, 50n]);
+      await tokenAsKyc.write.disallowUser([investor1]);
+      const tokenAsInvestor = await getTokenAs(token, investor1Wallet);
+      await viem.assertions.revertWithCustomError(
+        tokenAsInvestor.write.transfer([issuer, 10n]),
+        token,
+        "TransferNotPermitted",
+      );
+    });
+
+    it("disallow usuario que ya tiene tokens: issuer no puede transferirle", async function () {
+      const token = await deployToken();
+      const tokenAsKyc = await getTokenAs(token, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      const tokenAsIssuer = await getTokenAs(token, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, 100n]);
+      await tokenAsIssuer.write.transfer([investor1, 30n]);
+      await tokenAsKyc.write.disallowUser([investor1]);
+      await viem.assertions.revertWithCustomError(
+        tokenAsIssuer.write.transfer([investor1, 10n]),
+        token,
+        "TransferNotPermitted",
+      );
+    });
+  });
+
   describe("rechazo sin rol", function () {
     it("random no puede mint", async function () {
       const token = await deployToken();

@@ -243,4 +243,35 @@ contract RWAPermissionedERC20Test is Test {
     function test_DecimalsIsZero() public view {
         assertEq(token.decimals(), 0);
     }
+
+    // --- disallow usuario que ya tiene tokens ---
+    function test_DisallowUserWithTokens_CannotTransferToIssuer() public {
+        vm.prank(kycAdmin);
+        token.allowUser(investor1);
+        vm.prank(issuer);
+        token.mint(investor1, 50);
+        vm.prank(kycAdmin);
+        token.disallowUser(investor1);
+        vm.prank(investor1);
+        vm.expectRevert(
+            abi.encodeWithSelector(RWAPermissionedERC20.TransferNotPermitted.selector, investor1, issuer)
+        );
+        token.transfer(issuer, 10);
+    }
+
+    function test_DisallowUserWithTokens_IssuerCannotTransferToHim() public {
+        vm.prank(kycAdmin);
+        token.allowUser(investor1);
+        vm.prank(issuer);
+        token.mint(issuer, 100);
+        vm.prank(issuer);
+        token.transfer(investor1, 30);
+        vm.prank(kycAdmin);
+        token.disallowUser(investor1);
+        vm.prank(issuer);
+        vm.expectRevert(
+            abi.encodeWithSelector(RWAPermissionedERC20.TransferNotPermitted.selector, issuer, investor1)
+        );
+        token.transfer(investor1, 10);
+    }
 }
