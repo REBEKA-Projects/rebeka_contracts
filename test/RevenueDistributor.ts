@@ -274,4 +274,197 @@ describe("RevenueDistributor", async function () {
       );
     });
   });
+
+  describe("Invariants: claimed + pending ≤ depositado", function () {
+    it("suma de claimed + pending de todos los holders ≤ total depositado", async function () {
+      const shareToken = await deployShareToken();
+      const tokenAsKyc = await getShareTokenAs(shareToken, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      await tokenAsKyc.write.allowUser([investor2]);
+      const tokenAsIssuer = await getShareTokenAs(shareToken, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, 100n]);
+      await tokenAsIssuer.write.mint([investor1, 50n]);
+      await tokenAsIssuer.write.mint([investor2, 50n]);
+
+      const payoutToken = await deployPayoutToken();
+      const distributor = await deployDistributor(payoutToken, shareToken);
+      const payoutAsIssuer = await getPayoutTokenAs(payoutToken, issuerWallet);
+      const totalDeposited = 1000n + 500n + 300n;
+      await payoutAsIssuer.write.mint([issuer, totalDeposited * 2n]);
+      await payoutAsIssuer.write.approve([distributor.address, totalDeposited]);
+
+      const distAsIssuer = await getDistributorAs(distributor, issuerWallet);
+      await distAsIssuer.write.deposit([1000n]);
+      await distAsIssuer.write.deposit([500n]);
+      await distAsIssuer.write.deposit([300n]);
+
+      const distAsInvestor1 = await getDistributorAs(distributor, investor1Wallet);
+      await distAsInvestor1.write.claim();
+      const distAsInvestor2 = await getDistributorAs(distributor, investor2Wallet);
+      await distAsInvestor2.write.claim();
+
+      const holders = [issuer, investor1, investor2] as const;
+      let sumClaimed = 0n;
+      let sumPending = 0n;
+      for (const u of holders) {
+        sumClaimed += await distributor.read.claimed([u]);
+        sumPending += await distributor.read.pending([u]);
+      }
+      assert.ok(
+        sumClaimed + sumPending <= totalDeposited,
+        `claimed(${sumClaimed}) + pending(${sumPending}) debe ser <= ${totalDeposited}`,
+      );
+    });
+
+    it("varios usuarios y varios deposits: rounding no excede total depositado", async function () {
+      const shareToken = await deployShareToken();
+      const tokenAsKyc = await getShareTokenAs(shareToken, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      await tokenAsKyc.write.allowUser([investor2]);
+      const tokenAsIssuer = await getShareTokenAs(shareToken, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, 33n]);
+      await tokenAsIssuer.write.mint([investor1, 33n]);
+      await tokenAsIssuer.write.mint([investor2, 34n]);
+
+      const payoutToken = await deployPayoutToken();
+      const distributor = await deployDistributor(payoutToken, shareToken);
+      const payoutAsIssuer = await getPayoutTokenAs(payoutToken, issuerWallet);
+      const amounts = [100n, 99n, 17n, 33n];
+      const totalDeposited = amounts.reduce((a, b) => a + b, 0n);
+      await payoutAsIssuer.write.mint([issuer, totalDeposited * 2n]);
+      await payoutAsIssuer.write.approve([distributor.address, totalDeposited]);
+
+      const distAsIssuer = await getDistributorAs(distributor, issuerWallet);
+      for (const amt of amounts) {
+        await distAsIssuer.write.deposit([amt]);
+      }
+
+      const holders = [issuer, investor1, investor2] as const;
+      let sumClaimed = 0n;
+      for (const u of holders) {
+        const dist = u === issuer ? distAsIssuer : u === investor1 ? await getDistributorAs(distributor, investor1Wallet) : await getDistributorAs(distributor, investor2Wallet);
+        await dist.write.claim();
+        sumClaimed += await distributor.read.claimed([u]);
+      }
+      let pending = 0n;
+      for (const u of holders) {
+        pending += await distributor.read.pending([u]);
+      }
+      assert.ok(
+        sumClaimed + pending <= totalDeposited,
+        `claimed(${sumClaimed}) + pending(${pending}) <= ${totalDeposited}`,
+      );
+    });
+  });
+
+  describe("Integration tests: checkpoint after balance change, no over-claim", function () {
+    it("tras mint a nuevo holder: checkpoint luego claim correcto, sin over-claim", async function () {
+      const shareToken = await deployShareToken();
+      const tokenAsKyc = await getShareTokenAs(shareToken, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      await tokenAsKyc.write.allowUser([investor2]);
+      const tokenAsIssuer = await getShareTokenAs(shareToken, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, 100n]);
+      await tokenAsIssuer.write.mint([investor1, 100n]);
+
+      const payoutToken = await deployPayoutToken();
+      const distributor = await deployDistributor(payoutToken, shareToken);
+      const payoutAsIssuer = await getPayoutTokenAs(payoutToken, issuerWallet);
+      await payoutAsIssuer.write.mint([issuer, 10_000n]);
+      await payoutAsIssuer.write.approve([distributor.address, 10_000n]);
+
+      const distAsIssuer = await getDistributorAs(distributor, issuerWallet);
+      await distAsIssuer.write.deposit([1000n]);
+
+      await tokenAsIssuer.write.mint([investor2, 100n]);
+      await distributor.write.checkpoint([investor2]);
+
+      const balDistBefore = await payoutToken.read.balanceOf([distributor.address]);
+      for (const [wallet, addr] of [[investor1Wallet, investor1], [investor2Wallet, investor2], [issuerWallet, issuer]] as const) {
+        const p = await distributor.read.pending([addr]);
+        if (p > 0n) {
+          const dist = await getDistributorAs(distributor, wallet);
+          await dist.write.claim();
+        }
+      }
+
+      const balDistAfter = await payoutToken.read.balanceOf([distributor.address]);
+      assert.ok(balDistAfter <= balDistBefore, "balance del distributor no debe aumentar (no over-claim)");
+      assert.ok(balDistAfter >= 0n, "no puede quedar negativo");
+    });
+
+    it("after transfer share: checkpoint both sides, claims correct", async function () {
+      const shareToken = await deployShareToken();
+      const tokenAsKyc = await getShareTokenAs(shareToken, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      await tokenAsKyc.write.allowUser([investor2]);
+      const tokenAsIssuer = await getShareTokenAs(shareToken, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, 100n]);
+      await tokenAsIssuer.write.mint([investor1, 100n]);
+
+      const payoutToken = await deployPayoutToken();
+      const distributor = await deployDistributor(payoutToken, shareToken);
+      const payoutAsIssuer = await getPayoutTokenAs(payoutToken, issuerWallet);
+      await payoutAsIssuer.write.mint([issuer, 10_000n]);
+      await payoutAsIssuer.write.approve([distributor.address, 10_000n]);
+
+      const distAsIssuer = await getDistributorAs(distributor, issuerWallet);
+      await distAsIssuer.write.deposit([1000n]);
+
+      const tokenAsInvestor1 = await getShareTokenAs(shareToken, investor1Wallet);
+      await tokenAsInvestor1.write.transfer([issuer, 50n]);
+      await distributor.write.checkpoint([investor1]);
+      await distributor.write.checkpoint([issuer]);
+
+      const totalDeposited = 1000n;
+      for (const [wallet, addr] of [[investor1Wallet, investor1], [issuerWallet, issuer]] as const) {
+        const p = await distributor.read.pending([addr]);
+        if (p > 0n) {
+          const dist = await getDistributorAs(distributor, wallet);
+          await dist.write.claim();
+        }
+      }
+
+      const claimed1 = await distributor.read.claimed([investor1]);
+      const claimedIssuer = await distributor.read.claimed([issuer]);
+      assert.ok(claimed1 + claimedIssuer <= totalDeposited, "suma claimed <= depositado");
+    });
+
+    it("after burn: checkpoint user, no over-claim", async function () {
+      const shareToken = await deployShareToken();
+      const tokenAsKyc = await getShareTokenAs(shareToken, kycAdminWallet);
+      await tokenAsKyc.write.allowUser([investor1]);
+      const tokenAsIssuer = await getShareTokenAs(shareToken, issuerWallet);
+      await tokenAsIssuer.write.mint([issuer, 100n]);
+      await tokenAsIssuer.write.mint([investor1, 100n]);
+
+      const payoutToken = await deployPayoutToken();
+      const distributor = await deployDistributor(payoutToken, shareToken);
+      const payoutAsIssuer = await getPayoutTokenAs(payoutToken, issuerWallet);
+      await payoutAsIssuer.write.mint([issuer, 10_000n]);
+      await payoutAsIssuer.write.approve([distributor.address, 10_000n]);
+
+      const distAsIssuer = await getDistributorAs(distributor, issuerWallet);
+      await distAsIssuer.write.deposit([1000n]);
+
+      await tokenAsIssuer.write.burn([investor1, 50n]);
+      await distributor.write.checkpoint([investor1]);
+
+      for (const [wallet, addr] of [[investor1Wallet, investor1], [issuerWallet, issuer]] as const) {
+        const p = await distributor.read.pending([addr]);
+        if (p > 0n) {
+          const dist = await getDistributorAs(distributor, wallet);
+          await dist.write.claim();
+        }
+      }
+
+      const totalInDist = await payoutToken.read.balanceOf([distributor.address]);
+      const totalDeposited = 1000n;
+      const c1 = await distributor.read.claimed([investor1]);
+      const c2 = await distributor.read.claimed([issuer]);
+      const totalClaimed = c1 + c2;
+      assert.ok(totalClaimed <= totalDeposited, "total claimed <= depositado");
+      assert.ok(totalInDist + totalClaimed <= totalDeposited + 1n, "resto en contrato + claimed no excede (redondeo)");
+    });
+  });
 });
