@@ -5,10 +5,14 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {RWAPermissionedERC20} from "./RWAPermissionedERC20.sol";
 import {RevenueDistributor} from "./RevenueDistributor.sol";
+import {RWAConfidentialERC20} from "./confidential/RWAConfidentialERC20.sol";
+import {IRWAConfidentialERC20} from "./confidential/IRWAConfidentialERC20.sol";
+import {RevenueDistributorFHE} from "./confidential/RevenueDistributorFHE.sol";
+import {AssetRegistry} from "./AssetRegistry.sol";
 
 /// @title RWATokenFactory
-/// @notice Despliega en una tx un RWAPermissionedERC20 y su RevenueDistributor (mismo admin/issuer/kycAdmin/pauser, USDC fijo).
-/// @dev Solo FACTORY_ADMIN puede crear. Emite TokenCreated para indexación.
+/// @notice Fuente única de verdad: despliega tokens RWA públicos o confidenciales (FHE) y sus distribuidores/registry.
+/// @dev createToken = versión pública (Arbitrum). createConfidentialToken = versión FHE (Fhenix) + AssetRegistry.
 contract RWATokenFactory is AccessControl {
     bytes32 public constant FACTORY_ADMIN_ROLE = keccak256("FACTORY_ADMIN_ROLE");
 
@@ -17,6 +21,14 @@ contract RWATokenFactory is AccessControl {
     event TokenCreated(
         address indexed token,
         address indexed distributor,
+        string name,
+        string symbol
+    );
+
+    event ConfidentialTokenCreated(
+        address indexed token,
+        address indexed distributor,
+        address indexed registry,
         string name,
         string symbol
     );
@@ -53,5 +65,26 @@ contract RWATokenFactory is AccessControl {
         distributor = new RevenueDistributor(admin, issuer, pauser, payoutToken, token);
         emit TokenCreated(address(token), address(distributor), name, symbol);
         return (token, distributor);
+    }
+
+    /// @notice Despliega la versión confidencial (FHE): RWAConfidentialERC20 + RevenueDistributorFHE + AssetRegistry.
+    /// @dev Para Fhenix/CoFHE. Mismos roles que createToken; el registry se usa para metadata del token confidencial.
+    function createConfidentialToken(
+        string calldata name,
+        string calldata symbol,
+        address admin,
+        address issuer,
+        address kycAdmin,
+        address pauser
+    )
+        external
+        onlyRole(FACTORY_ADMIN_ROLE)
+        returns (RWAConfidentialERC20 token, RevenueDistributorFHE distributor, AssetRegistry registry)
+    {
+        token = new RWAConfidentialERC20(name, symbol, 0, admin, issuer, kycAdmin, pauser);
+        distributor = new RevenueDistributorFHE(admin, issuer, pauser, payoutToken, IRWAConfidentialERC20(address(token)));
+        registry = new AssetRegistry(admin);
+        emit ConfidentialTokenCreated(address(token), address(distributor), address(registry), name, symbol);
+        return (token, distributor, registry);
     }
 }

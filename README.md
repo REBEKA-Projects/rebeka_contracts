@@ -9,6 +9,17 @@ Smart contracts and scripts for tokenizing real-world assets (land plots) on Arb
 
 The project is built on **Hardhat 3** + **viem**, with TypeScript tests using `node:test` and some additional Solidity tests.
 
+### Deployed addresses (Arbitrum Sepolia)
+
+| Contrato                  | Dirección |
+|---------------------------|-----------|
+| AssetRegistry             | `0x205934d52d3a7067eedf02440c40e71a022adfac` |
+| RWAPublicTokenFactory     | `0xccd3aab55dc2317c54b7499ba3037f994f389a3f` |
+| RWATokenFactoryRouter     | `0x13fcc7cac606eb1dc65a64097c856709b2f31015` |
+| Admin / MASTERWALLET      | `0xfBf9fcB06a4275DE4ba300bA0fAA8B19D048e1B2` |
+
+Use **Router** address for `createToken` and for indexing. See `docs/DEPLOY.md` for mainnet and env vars.
+
 ---
 
 ## Contracts
