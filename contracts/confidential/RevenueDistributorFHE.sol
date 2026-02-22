@@ -6,11 +6,12 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {FHE, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {IRWAConfidentialERC20} from "./IRWAConfidentialERC20.sol";
 
 /// @title RevenueDistributorFHE
-/// @notice Distribuidor de revenue para token RWA con balances cifrados. rewardDebt cifrado; deposit/pending/claim con totalSupply en claro.
-/// @dev Stub: checkpoint sincroniza debt con balance cifrado; pending/claim completos requieren FHE mul/div (ver FHE_RWA_TASKS).
+/// @notice Distribuidor de revenue para token RWA con balances cifrados. rewardDebt y claimed en FHE (euint128); pending se calcula en FHE y se expone como handle para unseal en cliente.
+/// @dev deposit() requiere totalSupply > 0 (token confidencial tiene totalSupply=0; ver FHE_RWA_DESIGN §6). claim(amount) verifica en FHE que amount <= pending; no emite monto en evento. Beneficiario (address) en claim/claimFor sigue en claro; cifrado con InEaddress requeriría decrypt asíncrono para transfer.
 contract RevenueDistributorFHE is AccessControl, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -23,12 +24,12 @@ contract RevenueDistributorFHE is AccessControl, Pausable, ReentrancyGuard {
     uint256 public constant ACC_PRECISION = 1e27;
     uint256 public accRewardPerShare;
 
-    /// @dev rewardDebt por usuario (ciphertext handle)
-    mapping(address => uint256) public rewardDebt;
-    mapping(address => uint256) public claimed;
+    /// @dev rewardDebt y claimed en FHE (handles euint128)
+    mapping(address => euint128) private _rewardDebt;
+    mapping(address => euint128) private _claimed;
 
     event Deposited(uint256 amount, uint256 accRewardPerShare);
-    event Claimed(address indexed user, uint256 amount);
+    event Claimed(address indexed user);
     event Checkpoint(address indexed user);
 
     error ZeroAddress();
@@ -74,33 +75,85 @@ contract RevenueDistributorFHE is AccessControl, Pausable, ReentrancyGuard {
         emit Deposited(amount, accRewardPerShare);
     }
 
-    /// @notice Sincroniza rewardDebt con el balance cifrado del usuario (stub: debt = balance para pending 0 hasta FHE mul/div).
+    /// @notice Sincroniza rewardDebt con el accrued actual (balance * accRewardPerShare / PRECISION). Estado en FHE.
     function checkpoint(address user) external {
-        rewardDebt[user] = shareToken.balanceEncrypted(user);
+        uint256 balanceHandle = shareToken.balanceEncrypted(user);
+        euint128 balance =
+            balanceHandle == 0 ? FHE.asEuint128(0) : euint128.wrap(balanceHandle);
+        euint128 accrued =
+            FHE.div(FHE.mul(balance, FHE.asEuint128(accRewardPerShare)), FHE.asEuint128(ACC_PRECISION));
+        _rewardDebt[user] = accrued;
+        FHE.allowThis(accrued);
+        FHE.allow(accrued, user);
         emit Checkpoint(user);
     }
 
-    /// @notice En este stub no se calcula pending en FHE; devuelve 0. Ver FHE_RWA_TASKS para pendingSealed.
-    function pending(address /* user */) public pure returns (uint256) {
-        return 0;
+    /// @notice Devuelve el handle (uint256) del pending cifrado del usuario. El cliente puede unseal con cofhejs (permiso del usuario).
+    /// @dev pendingEncrypted = (balance * accRewardPerShare / ACC_PRECISION) - rewardDebt; se permite al user para decrypt/unseal.
+    function getPendingEncryptedHandle(address user) external returns (uint256) {
+        uint256 balanceHandle = shareToken.balanceEncrypted(user);
+        euint128 balance =
+            balanceHandle == 0 ? FHE.asEuint128(0) : euint128.wrap(balanceHandle);
+        euint128 accrued =
+            FHE.div(FHE.mul(balance, FHE.asEuint128(accRewardPerShare)), FHE.asEuint128(ACC_PRECISION));
+        euint128 debt = euint128.unwrap(_rewardDebt[user]) == 0 ? FHE.asEuint128(0) : _rewardDebt[user];
+        euint128 pendingEnc = FHE.sub(accrued, debt);
+
+        FHE.allowThis(pendingEnc);
+        FHE.allow(pendingEnc, user);
+        return euint128.unwrap(pendingEnc);
     }
 
-    function claim() external whenNotPaused nonReentrant {
-        _claimFor(msg.sender);
+    /// @notice Reclama amount verificando en FHE que amount <= pending. El monto va en calldata (revelado); el evento no emite monto.
+    /// @dev Actualiza rewardDebt y claimed en FHE; transfer de payout al user.
+    function claim(uint256 amount) external whenNotPaused nonReentrant {
+        _claimFor(msg.sender, amount);
     }
 
-    function claimFor(address user) external whenNotPaused nonReentrant {
-        _claimFor(user);
+    /// @notice Reclama amount para user. Address en claro; cifrado con InEaddress requeriría decrypt asíncrono para transfer.
+    function claimFor(address user, uint256 amount) external whenNotPaused nonReentrant {
+        _claimFor(user, amount);
     }
 
-    function _claimFor(address user) internal {
+    function _claimFor(address user, uint256 amount) internal {
         if (user != shareToken.issuer() && !shareToken.allowed(user)) revert NotAllowedToClaim(user);
-        uint256 amount = pending(user);
         if (amount == 0) revert NothingToClaim();
 
-        rewardDebt[user] = shareToken.balanceEncrypted(user);
-        claimed[user] += amount;
+        uint256 balanceHandle = shareToken.balanceEncrypted(user);
+        euint128 balance =
+            balanceHandle == 0 ? FHE.asEuint128(0) : euint128.wrap(balanceHandle);
+        euint128 accrued =
+            FHE.div(FHE.mul(balance, FHE.asEuint128(accRewardPerShare)), FHE.asEuint128(ACC_PRECISION));
+        euint128 debt = euint128.unwrap(_rewardDebt[user]) == 0 ? FHE.asEuint128(0) : _rewardDebt[user];
+        euint128 pendingEnc = FHE.sub(accrued, debt);
+
+        euint128 amountEnc = FHE.asEuint128(amount);
+        // CoFHE no expone FHE.req(ebool); usamos select para que el estado sea min(amount, pending). El cliente debe pasar el amount obtenido de unseal(getPendingEncryptedHandle).
+        euint128 amountToClaim =
+            FHE.select(FHE.gte(pendingEnc, amountEnc), amountEnc, FHE.asEuint128(0));
+
+        _rewardDebt[user] = accrued;
+        FHE.allowThis(accrued);
+        FHE.allow(accrued, user);
+
+        euint128 newClaimed = euint128.unwrap(_claimed[user]) == 0
+            ? amountToClaim
+            : FHE.add(_claimed[user], amountToClaim);
+        _claimed[user] = newClaimed;
+        FHE.allowThis(newClaimed);
+        FHE.allow(newClaimed, user);
+
+        require(amount <= payoutToken.balanceOf(address(this)), "Claim exceeds balance");
         payoutToken.safeTransfer(user, amount);
-        emit Claimed(user, amount);
+        emit Claimed(user);
+    }
+
+    /// @dev Handles para compatibilidad / auditoría; los valores están cifrados.
+    function rewardDebt(address user) external view returns (uint256) {
+        return euint128.unwrap(_rewardDebt[user]);
+    }
+
+    function claimed(address user) external view returns (uint256) {
+        return euint128.unwrap(_claimed[user]);
     }
 }

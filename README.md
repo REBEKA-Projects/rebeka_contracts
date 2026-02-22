@@ -11,14 +11,17 @@ The project is built on **Hardhat 3** + **viem**, with TypeScript tests using `n
 
 ### Deployed addresses (Arbitrum Sepolia)
 
-| Contrato                  | Dirección |
-|---------------------------|-----------|
-| AssetRegistry             | `0x205934d52d3a7067eedf02440c40e71a022adfac` |
-| RWAPublicTokenFactory     | `0xccd3aab55dc2317c54b7499ba3037f994f389a3f` |
-| RWATokenFactoryRouter     | `0x13fcc7cac606eb1dc65a64097c856709b2f31015` |
-| Admin / MASTERWALLET      | `0xfBf9fcB06a4275DE4ba300bA0fAA8B19D048e1B2` |
+| Contract                     | Address |
+|-----------------------------|---------|
+| AssetRegistry                | `0x205934d52d3a7067eedf02440c40e71a022adfac` |
+| RWAPublicTokenFactory       | `0xccd3aab55dc2317c54b7499ba3037f994f389a3f` |
+| RWATokenFactoryRouter       | `0x13fcc7cac606eb1dc65a64097c856709b2f31015` |
+| RWAConfidentialTokenFactory | `0xc2ef35e82a944ac835c888c376d03b48dc8651f4` |
+| RWA Confidential 1 (RWC1)   | `0xe3A879a1e56FC801CaCf128eD1ddbadEc43e272a` |
+| Admin / MASTERWALLET        | `0xfBf9fcB06a4275DE4ba300bA0fAA8B19D048e1B2` |
+| USDC (payout, testnet)      | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
 
-Use **Router** address for `createToken` and for indexing. See `docs/DEPLOY.md` for mainnet and env vars.
+Use **Router** for public `createToken` and indexing. Use **RWAConfidentialTokenFactory** for confidential tokens; first created token (RWC1) address above is used with `mint-confidential.ts`. See `docs/DEPLOY.md` for mainnet and env vars.
 
 ---
 
@@ -183,6 +186,41 @@ ARBITRUM_RPC_URL=... \
 ARBITRUM_PRIVATE_KEY=0xInvestorKey \
 npx hardhat run scripts/revenue-actions.ts --network arbitrum
 ```
+
+### `scripts/deploy-confidential.ts`
+
+- **Responsibility**: deploy **RWAConfidentialTokenFactory** and optionally create the first confidential token (FHE). Uses CoFHE; supports Arbitrum Sepolia.
+- **Variables**: `MASTERWALLET` (admin/issuer/kycAdmin/pauser of the token), `USDC` payout address for the distributor (optional; script has defaults for Arbitrum Sepolia).
+- **Output**: factory address and, if created, the first `RWAConfidentialERC20` address (use the latter as `RWA_CONFIDENTIAL_TOKEN_ADDRESS` for minting).
+
+Example:
+
+```bash
+npx hardhat run scripts/deploy-confidential.ts --network arbitrumSepolia
+```
+
+### `scripts/mint-confidential.ts` (FHE / confidential)
+
+- **Responsibility**: whitelist and mint tokens for a user on **RWAConfidentialERC20**. Uses **mintEncrypted** (amount encrypted via cofhejs in a CJS helper); balances and mint amount stay private on-chain.
+- **Variables**:
+  - `RWA_CONFIDENTIAL_TOKEN_ADDRESS` (required): address of the `RWAConfidentialERC20` contract (e.g. the token created by `deploy-confidential.ts`).
+  - `USER_TO_ALLOW_AND_MINT` (required): address to whitelist and mint to.
+  - `MINT_AMOUNT` (optional): amount to mint (default 100).
+  - `ALLOW_ONLY` (optional): set to `1` to only whitelist, no mint.
+- **Network**: use the network where the confidential token is deployed (e.g. **arbitrumSepolia**).
+- **Signer**: must have `KYC_ADMIN_ROLE` (for `allowUser`) and `ISSUER_ROLE` (for `mintEncrypted`). Same env as the network (e.g. `ARBITRUM_SEPOLIA_RPC_URL`, `ARBITRUM_SEPOLIA_PRIVATE_KEY`).
+
+Example:
+
+```bash
+export RWA_CONFIDENTIAL_TOKEN_ADDRESS=0xe3A879a1e56FC801CaCf128eD1ddbadEc43e272a
+export USER_TO_ALLOW_AND_MINT=0x...
+npx hardhat run scripts/mint-confidential.ts --network arbitrumSepolia
+```
+
+### `scripts/grant-role.ts`
+
+- **Responsibility**: grant or revoke AccessControl roles on a contract after deploy. See `docs/DEPLOY.md` for usage.
 
 ---
 

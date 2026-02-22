@@ -13,6 +13,7 @@
     "viem": "^2.45.2"
   },
   "dependencies": {
-    "@fhenixprotocol/cofhe-contracts": "^0.0.14"
+    "@fhenixprotocol/cofhe-contracts": "^0.0.14",
+    "cofhejs": "^0.3.1"
   }
 }
