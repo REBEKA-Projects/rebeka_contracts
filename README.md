@@ -9,19 +9,30 @@ Smart contracts and scripts for tokenizing real-world assets (land plots) on Arb
 
 The project is built on **Hardhat 3** + **viem**, with TypeScript tests using `node:test` and some additional Solidity tests.
 
-### Deployed addresses (Arbitrum Sepolia)
+### Deployed addresses (Testnets)
 
+#### Arbitrum Sepolia
 | Contract                     | Address |
 |-----------------------------|---------|
-| AssetRegistry                | `0x205934d52d3a7067eedf02440c40e71a022adfac` |
-| RWAPublicTokenFactory       | `0xccd3aab55dc2317c54b7499ba3037f994f389a3f` |
-| RWATokenFactoryRouter       | `0x13fcc7cac606eb1dc65a64097c856709b2f31015` |
-| RWAConfidentialTokenFactory | `0xc2ef35e82a944ac835c888c376d03b48dc8651f4` |
-| RWA Confidential 1 (RWC1)   | `0xe3A879a1e56FC801CaCf128eD1ddbadEc43e272a` |
-| Admin / MASTERWALLET        | `0xfBf9fcB06a4275DE4ba300bA0fAA8B19D048e1B2` |
+| RWATokenFactoryRouter       | `0x0ce62220867e7df484aca7768ac30be077346803` |
+| RWAPublicTokenFactory       | `0xbd6ac1b582a52d39cd22ecc9501a992b1edf11f0` |
+| RWAConfidentialTokenFactory | `0xa0570079ebf260648801e3271535e48c33d18102` |
+| AssetRegistry                | `0x8ac75a491bea0e40ce230e3be632038f4324cd4d` |
 | USDC (payout, testnet)      | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
 
-Use **Router** for public `createToken` and indexing. Use **RWAConfidentialTokenFactory** for confidential tokens; first created token (RWC1) address above is used with `mint-confidential.ts`. See `docs/DEPLOY.md` for mainnet and env vars.
+#### Ethereum Sepolia
+| Contract                     | Address |
+|-----------------------------|---------|
+| RWATokenFactoryRouter       | `0xd3e41deae71e6c81f799ca746349b8d58e83b881` |
+| RWAPublicTokenFactory       | `0x4f87490b7879864324d4be083d6b217994015999` |
+| RWAConfidentialTokenFactory | `0xa74236c1b78d17ba1639b705053a5f0bf4ffa5a5` |
+| AssetRegistry                | `0xdb113e53e45f4a4ee83b87c6e58d5fc86e0122d6` |
+| USDC (payout, testnet)      | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
+
+#### Common
+- **Admin / MASTERWALLET:** `0xfBf9fcB06a4275DE4ba300bA0fAA8B19D048e1B2`
+
+Use **Router** for both public and confidential `createToken` and indexing. The Router is now dynamic and can link to the appropriate factories. See `docs/DEPLOY.md` for mainnet and env vars.
 
 ---
 

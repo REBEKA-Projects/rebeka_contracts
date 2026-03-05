@@ -9,6 +9,31 @@ Contratos y scripts para la tokenización de RWA (terrenos) en Arbitrum:
 
 Todo el proyecto está montado sobre **Hardhat 3** + **viem** y tests en TypeScript con `node:test`, más tests de Solidity para algunas piezas.
 
+### Direcciones desplegadas (Testnets)
+
+#### Arbitrum Sepolia
+| Contrato                     | Dirección |
+|-----------------------------|---------|
+| RWATokenFactoryRouter       | `0x0ce62220867e7df484aca7768ac30be077346803` |
+| RWAPublicTokenFactory       | `0xbd6ac1b582a52d39cd22ecc9501a992b1edf11f0` |
+| RWAConfidentialTokenFactory | `0xa0570079ebf260648801e3271535e48c33d18102` |
+| AssetRegistry                | `0x8ac75a491bea0e40ce230e3be632038f4324cd4d` |
+| USDC (payout, testnet)      | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
+
+#### Ethereum Sepolia
+| Contrato                     | Dirección |
+|-----------------------------|---------|
+| RWATokenFactoryRouter       | `0xd3e41deae71e6c81f799ca746349b8d58e83b881` |
+| RWAPublicTokenFactory       | `0x4f87490b7879864324d4be083d6b217994015999` |
+| RWAConfidentialTokenFactory | `0xa74236c1b78d17ba1639b705053a5f0bf4ffa5a5` |
+| AssetRegistry                | `0xdb113e53e45f4a4ee83b87c6e58d5fc86e0122d6` |
+| USDC (payout, testnet)      | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
+
+#### Común
+- **Admin / MASTERWALLET:** `0xfBf9fcB06a4275DE4ba300bA0fAA8B19D048e1B2`
+
+Usa el **Router** para crear tokens (públicos o confidenciales) y para indexación. El Router es dinámico y permite enlazar los factories correspondientes.
+
 ---
 
 ## Contratos

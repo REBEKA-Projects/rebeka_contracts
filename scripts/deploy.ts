@@ -3,9 +3,10 @@ import { network } from "hardhat";
 // USDC por red (ver docs/DEPLOY.md)
 const DEFAULT_USDC_ARBITRUM = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
 const DEFAULT_USDC_ARBITRUM_SEPOLIA = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d" as const;
+const DEFAULT_USDC_SEPOLIA = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as const;
 
 async function main() {
-  // Usa la red pasada con --network (ej. arbitrum, arbitrumSepolia)
+  // Usa la red pasada con --network (ej. arbitrum, arbitrumSepolia, sepolia)
   const connection = await network.connect();
   const { viem, networkName } = connection;
   const publicClient = await viem.getPublicClient();
@@ -14,11 +15,14 @@ async function main() {
   const masterWallet = (process.env.MASTERWALLET ?? process.env.MULTISIG_ADDRESS ?? deployer.account.address) as `0x${string}`;
 
   // USDC según red: env tiene prioridad; si no, default por red
-  const usdcAddress = (
-    networkName === "arbitrumSepolia"
-      ? (process.env.USDC_ARBITRUM_SEPOLIA ?? DEFAULT_USDC_ARBITRUM_SEPOLIA)
-      : (process.env.USDC_ARBITRUM ?? DEFAULT_USDC_ARBITRUM)
-  ) as `0x${string}`;
+  let usdcAddress: `0x${string}`;
+  if (networkName === "arbitrumSepolia") {
+    usdcAddress = (process.env.USDC_ARBITRUM_SEPOLIA ?? DEFAULT_USDC_ARBITRUM_SEPOLIA) as `0x${string}`;
+  } else if (networkName === "sepolia") {
+    usdcAddress = (process.env.USDC_SEPOLIA ?? DEFAULT_USDC_SEPOLIA) as `0x${string}`;
+  } else {
+    usdcAddress = (process.env.USDC_ARBITRUM ?? DEFAULT_USDC_ARBITRUM) as `0x${string}`;
+  }
 
   console.log("Network:", networkName);
   console.log("Deploy account:", deployer.account.address);

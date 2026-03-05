@@ -13,7 +13,7 @@ contract RWATokenFactoryRouter is AccessControl {
 
     IRWAPublicTokenFactory public immutable publicFactory;
     /// @dev address(0) si en esta red no está desplegado el factory confidencial (p. ej. solo Arbitrum público).
-    IRWAConfidentialTokenFactory public immutable confidentialFactory;
+    IRWAConfidentialTokenFactory public confidentialFactory;
 
     event TokenCreated(
         address indexed token,
@@ -30,6 +30,8 @@ contract RWATokenFactoryRouter is AccessControl {
         string symbol
     );
 
+    event ConfidentialFactoryUpdated(address indexed oldFactory, address indexed newFactory);
+
     error ZeroAddress();
     error ConfidentialFactoryNotSet();
 
@@ -42,6 +44,13 @@ contract RWATokenFactoryRouter is AccessControl {
         _grantRole(FACTORY_ADMIN_ROLE, admin);
         publicFactory = publicFactory_;
         confidentialFactory = confidentialFactory_;
+    }
+
+    /// @notice Actualiza la dirección del factory confidencial.
+    function setConfidentialFactory(IRWAConfidentialTokenFactory newFactory) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address old = address(confidentialFactory);
+        confidentialFactory = newFactory;
+        emit ConfidentialFactoryUpdated(old, address(newFactory));
     }
 
     /// @notice Crea un token RWA público y su distribuidor. Emite TokenCreated desde este contrato (misma dirección para indexación).
