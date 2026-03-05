@@ -2,23 +2,31 @@
 pragma solidity ^0.8.19;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {FHE, ebool, euint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {InEuint128} from "@fhenixprotocol/cofhe-contracts/ICofhe.sol";
 import {IRWAConfidentialERC20} from "./IRWAConfidentialERC20.sol";
 
+interface IReceiver is IERC165 {
+    function onReport(bytes calldata metadata, bytes calldata report) external;
+}
+
 /// @title RWAConfidentialERC20
 /// @notice Token RWA 100% confidencial: solo mintEncrypted y transferEncrypted (InEuint128). Sin datos en claro on-chain.
 /// @dev totalSupply no se actualiza (siempre 0); RevenueDistributorFHE requiere diseño con totalSupply cifrado o alternativo.
-contract RWAConfidentialERC20 is AccessControl, IRWAConfidentialERC20 {
+contract RWAConfidentialERC20 is AccessControl, IRWAConfidentialERC20, IReceiver, Pausable {
     bytes32 public constant ISSUER_ROLE = keccak256("ISSUER_ROLE");
     bytes32 public constant KYC_ADMIN_ROLE = keccak256("KYC_ADMIN_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant FORWARDER_ROLE = keccak256("FORWARDER_ROLE");
 
     string public name;
     string public symbol;
     uint8 public constant decimals = 0;
 
     address public issuer;
+    address public keystoneForwarder;
     mapping(address => bool) public allowed;
 
     /// @dev Balance cifrado por usuario (euint128 = handle FHE; el ciphertext vive off-chain en CoFHE)
@@ -26,13 +34,16 @@ contract RWAConfidentialERC20 is AccessControl, IRWAConfidentialERC20 {
     /// @dev Siempre 0; no se desencripta on-chain. Mantenido por compatibilidad con IRWAConfidentialERC20.
     uint256 public totalSupply;
 
+    event IssuerUpdated(address indexed oldIssuer, address indexed newIssuer);
     event UserAllowed(address indexed user);
     event UserDisallowed(address indexed user);
     event MintedEncrypted(address indexed to);
     event TransferEncrypted(address indexed from, address indexed to);
+    event KeystoneForwarderUpdated(address indexed oldForwarder, address indexed newForwarder);
 
     error NotAllowed(address user);
     error ZeroAddress();
+    error OnlyForwarder();
 
     constructor(
         string memory name_,
@@ -55,7 +66,53 @@ contract RWAConfidentialERC20 is AccessControl, IRWAConfidentialERC20 {
         _grantRole(PAUSER_ROLE, pauser);
     }
 
+    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControl, IERC165) returns (bool) {
+        return interfaceId == type(IReceiver).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    function setIssuer(address newIssuer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newIssuer == address(0)) revert ZeroAddress();
+        address old = issuer;
+        issuer = newIssuer;
+        _grantRole(ISSUER_ROLE, newIssuer);
+        _revokeRole(ISSUER_ROLE, old);
+        emit IssuerUpdated(old, newIssuer);
+    }
+
+    function setKeystoneForwarder(address forwarder) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (forwarder == address(0)) revert ZeroAddress();
+        address old = keystoneForwarder;
+        keystoneForwarder = forwarder;
+        _grantRole(FORWARDER_ROLE, forwarder);
+        _revokeRole(FORWARDER_ROLE, old);
+        emit KeystoneForwarderUpdated(old, forwarder);
+    }
+
+    function onReport(bytes calldata /* metadata */, bytes calldata report) external {
+        if (msg.sender != keystoneForwarder) revert OnlyForwarder();
+        
+        bytes4 selector;
+        assembly {
+            selector := calldataload(report.offset)
+        }
+
+        // Selector 0x47e1933a = allowUser(address)
+        if (selector == 0x47e1933a) {
+            address user = abi.decode(report[4:], (address));
+            _allowUser(user);
+        } 
+        // Selector 0x696160da = mintEncrypted(address,(uint256,uint32,uint8,bytes))
+        else if (selector == 0x696160da) {
+            (address to, InEuint128 memory encryptedAmount) = abi.decode(report[4:], (address, InEuint128));
+            _mintEncryptedInternal(to, encryptedAmount);
+        }
+    }
+
     function allowUser(address user) external onlyRole(KYC_ADMIN_ROLE) {
+        _allowUser(user);
+    }
+
+    function _allowUser(address user) internal {
         allowed[user] = true;
         emit UserAllowed(user);
     }
@@ -65,9 +122,21 @@ contract RWAConfidentialERC20 is AccessControl, IRWAConfidentialERC20 {
         emit UserDisallowed(user);
     }
 
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
+
     /// @notice Mintea cantidad cifrada (InEuint128). El amount no va en calldata; solo issuer.
     /// @dev No actualiza totalSupply (no se desencripta on-chain). Balance cifrado + allowThis/allow.
     function mintEncrypted(address to, InEuint128 calldata encryptedAmount) external onlyRole(ISSUER_ROLE) {
+        _mintEncryptedInternal(to, encryptedAmount);
+    }
+
+    function _mintEncryptedInternal(address to, InEuint128 memory encryptedAmount) internal {
         if (to != issuer && !allowed[to]) revert NotAllowed(to);
 
         euint128 amount = FHE.asEuint128(encryptedAmount);
@@ -85,7 +154,7 @@ contract RWAConfidentialERC20 is AccessControl, IRWAConfidentialERC20 {
 
     /// @notice Transfiere cantidad cifrada (InEuint128) de msg.sender a to. El monto no va en claro en calldata.
     /// @dev Usa FHE.select para no filtrar si el balance es suficiente; solo transfiere amount o 0. Solo issuer ↔ allowlisted.
-    function transferEncrypted(address to, InEuint128 calldata encryptedAmount) external {
+    function transferEncrypted(address to, InEuint128 calldata encryptedAmount) external whenNotPaused {
         if (msg.sender != issuer && !allowed[msg.sender]) revert NotAllowed(msg.sender);
         if (to != issuer && !allowed[to]) revert NotAllowed(to);
 
