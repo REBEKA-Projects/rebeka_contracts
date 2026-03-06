@@ -18,6 +18,8 @@ The project is built on **Hardhat 3** + **viem**, with TypeScript tests using `n
 | RWAPublicTokenFactory       | `0xbd6ac1b582a52d39cd22ecc9501a992b1edf11f0` |
 | RWAConfidentialTokenFactory | `0xa0570079ebf260648801e3271535e48c33d18102` |
 | AssetRegistry                | `0x8ac75a491bea0e40ce230e3be632038f4324cd4d` |
+| **Public Token (PAP1)**     | `0x894cdA6feBf63aC3e4ae94e639D5D61eB9745d83` |
+| **Confidential Token (CAP1)**| `0xA9b4F6A44d16796321f21522C1a70C7B4E97B94A` |
 | USDC (payout, testnet)      | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` |
 
 #### Ethereum Sepolia
@@ -27,6 +29,8 @@ The project is built on **Hardhat 3** + **viem**, with TypeScript tests using `n
 | RWAPublicTokenFactory       | `0x4f87490b7879864324d4be083d6b217994015999` |
 | RWAConfidentialTokenFactory | `0xa74236c1b78d17ba1639b705053a5f0bf4ffa5a5` |
 | AssetRegistry                | `0xdb113e53e45f4a4ee83b87c6e58d5fc86e0122d6` |
+| **Public Token (PEP1)**     | `0xb7c22c408bb1126FE5C4B35FE7e5EE6fc69C29Da` |
+| **Confidential Token (CEP1)**| `0xc48e235465A9c04f051abf0dA6aD63Ea9B6651e5` |
 | USDC (payout, testnet)      | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
 
 #### Common
